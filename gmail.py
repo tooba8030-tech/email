@@ -66,7 +66,7 @@ def authenticate_gmail():
             flow.redirect_uri = redirect_uri
 
             # --- 3. Handle redirect automatically ---
-             query_params = st.experimental_get_query_params()
+            query_params = st.experimental_get_query_params()
 
             if "code" not in query_params:
                 # Not logged in yet → show login button
