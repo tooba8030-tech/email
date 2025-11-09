@@ -44,7 +44,7 @@ def authenticate_gmail():
                 # Check if we're in Streamlit Cloud
                if 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_SERVER' in os.environ:
                     redirect_uri = os.environ.get('STREAMLIT_REDIRECT_URI', 'https://mailsense.streamlit.app/')
-                else:
+               else:
                     redirect_uri = "http://localhost:8501/"
             except:
                 # Fallback to local
