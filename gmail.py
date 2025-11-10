@@ -17,6 +17,9 @@ load_dotenv()
 
 # Define the Gmail/Calendar scopes
 SCOPES = [
+    "openid",
+    "https://www.googleaps.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/calendar.events"
