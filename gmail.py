@@ -64,13 +64,13 @@ def authenticate_gmail():
         
         # Check if running on Streamlit Cloud
         if st.secrets.get("env") == "cloud":
-          redirect_uri = "https://mailsense.streamlit.app/"
+          redirect_uri = "https://mailsense.streamlit.app/oauth2callback"
         else:
           redirect_uri = "http://localhost:8501/"
               
         # Method 2: Check for Streamlit Cloud environment variable
         if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("IS_STREAMLIT_CLOUD"):
-            redirect_uri = "https://mailsense.streamlit.app/"
+            redirect_uri = "https://mailsense.streamlit.app/oauth2callback"
         
         # Method 3: Force cloud URL if secrets are from Streamlit Cloud
         # (Streamlit Cloud always has secrets, local might use .env)
