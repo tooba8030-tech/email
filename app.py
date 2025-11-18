@@ -72,7 +72,7 @@ if st.session_state.get("email_list"):
     selected_email = st.session_state["email_list"][selected_index]["content"]
     original_email = st.session_state["email_list"][selected_index]["original_content"]
     
-    st.text_area("Email Content", selected_email, height=200, key="email_content_display")
+    st.text_area("Email Content",selected_email,height=200,key=f"email_content_display_{selected_index}")
 
     summary_key = f"summary_{selected_index}"
     caption_key = f"caption_{selected_index}"
