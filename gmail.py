@@ -26,7 +26,7 @@ SCOPES = [
 ]
 
 def is_local():
-    return "localhost" in st.request.host_url or "127.0.0.1" in st.request.host_url
+    return os.environ.get("STREAMLIT_RUNTIME") != "cloud"
 
 
 def authenticate_gmail():
