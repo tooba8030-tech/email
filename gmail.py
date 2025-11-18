@@ -44,8 +44,12 @@ def authenticate_gmail():
                 creds.refresh(Request())
                 st.session_state["creds"] = creds
                 return creds
-            except:
+            except Exception as e:
+                st.warning(f"Token refresh failed: {e}")
                 pass  # Will re-authenticate below
+
+    # Initialize creds variable
+    creds = None
 
     # --- 2. Load existing token if available (local only) ---
     if os.path.exists("token.json"):
@@ -57,18 +61,24 @@ def authenticate_gmail():
     # --- 3. If no valid credentials, start OAuth flow ---
     if not creds or not creds.valid:
         # Get credentials
-        client_id = st.secrets["google"]["client_id"]
-        client_secret = st.secrets["google"]["client_secret"]
+        try:
+            client_id = st.secrets["google"]["client_id"]
+            client_secret = st.secrets["google"]["client_secret"]
+        except KeyError as e:
+            st.error(f"❌ Missing secret: {e}")
+            st.error("Please configure secrets in Streamlit settings")
+            st.stop()
 
-        # Detect environment - FIXED VERSION
-        redirect_uri = "http://localhost:8501"  # default for local
-        
-        # Check if running on Streamlit Cloud
+        # Detect environment
         if st.secrets.get("env") == "cloud":
-          redirect_uri = "https://mailsense.streamlit.app/oauth2callback"
+            redirect_uri = "https://smart-email-engine-5khhar4st9jnt348hzba8.streamlit.app/oauth2callback"
         else:
-          redirect_uri = "http://localhost:8501"
-              
+            redirect_uri = "http://localhost:8501"
+        
+        # DEBUG: Show configuration
+        st.info(f"🔍 DEBUG: Environment: {st.secrets.get('env', 'local')}")
+        st.info(f"🔍 DEBUG: Redirect URI: {redirect_uri}")
+        st.info(f"🔍 DEBUG: Client ID: {client_id[:20]}...")
 
         # Initialize OAuth flow
         flow = Flow.from_client_config(
@@ -91,6 +101,11 @@ def authenticate_gmail():
         if "code" not in query_params:
             # Not logged in yet → show login button
             auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+            
+            # DEBUG: Show auth URL
+            st.info(f"🔍 DEBUG: Auth URL generated")
+            st.code(auth_url, language=None)
+            
             st.markdown(
                 f'<a href="{auth_url}" target="_self">'
                 '<button style="padding:8px 16px;background-color:#4285F4;color:white;border:none;border-radius:4px;">'
@@ -101,22 +116,51 @@ def authenticate_gmail():
         else:
             # User returned from Google with ?code=...
             auth_code = query_params["code"]
-            flow.fetch_token(code=auth_code)
-            creds = flow.credentials
-
-            # Save to session state (persists during session)
-            st.session_state["creds"] = creds
             
-            # Save to file (for local development only)
+            # DEBUG: Log the auth process
+            st.info(f"🔍 DEBUG: Received auth code: {auth_code[:20]}...")
+            st.info(f"🔍 DEBUG: Using redirect URI: {flow.redirect_uri}")
+            st.info(f"🔍 DEBUG: Fetching token...")
+            
             try:
-                with open("token.json", "w") as token_file:
-                    token_file.write(creds.to_json())
-            except:
-                pass  # File system might be read-only on cloud
+                flow.fetch_token(code=auth_code)
+                creds = flow.credentials
+                
+                # DEBUG: Log success
+                st.success("✅ DEBUG: Token fetched successfully!")
+                st.info(f"🔍 DEBUG: Token valid: {creds.valid}")
+                st.info(f"🔍 DEBUG: Has refresh token: {creds.refresh_token is not None}")
+                
+                # Save to session state (persists during session)
+                st.session_state["creds"] = creds
+                
+                # Save to file (for local development only)
+                try:
+                    with open("token.json", "w") as token_file:
+                        token_file.write(creds.to_json())
+                    st.info("✅ DEBUG: Saved to token.json")
+                except Exception as e:
+                    st.warning(f"Could not save token.json: {e}")
 
-            st.success("✅ Logged in successfully!")
-            st.query_params.clear()  # clean up URL
-            st.rerun()
+                st.success("✅ Logged in successfully!")
+                st.query_params.clear()  # clean up URL
+                st.rerun()
+                
+            except Exception as e:
+                # DEBUG: Log the exact error
+                st.error(f"❌ DEBUG: Token fetch failed!")
+                st.error(f"**Error type:** {type(e).__name__}")
+                st.error(f"**Error message:** {str(e)}")
+                st.error(f"**Redirect URI used:** {flow.redirect_uri}")
+                st.error(f"**Client ID:** {client_id[:20]}...")
+                
+                # Show full error details in expander
+                with st.expander("🔍 Full Error Details"):
+                    st.code(str(e))
+                    import traceback
+                    st.code(traceback.format_exc())
+                
+                st.stop()
 
     return creds
     
