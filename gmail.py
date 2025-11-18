@@ -25,25 +25,15 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
 ]
 
-def is_local():
-    return os.environ.get("STREAMLIT_RUNTIME") != "cloud"
-
 
 def authenticate_gmail():
-    """
-    Streamlit Cloud-safe Gmail authentication with:
-    - Per-user isolated credentials
-    - Detailed error reporting
-    - Local + Cloud support
-    """
-
-    # Create a unique per-user session ID
+    # 1️⃣ Unique key per user session
     if "session_id" not in st.session_state:
         st.session_state.session_id = os.urandom(16).hex()
 
     user_key = f"creds_{st.session_state.session_id}"
 
-    # ---------- 1. Use stored credentials if valid ----------
+    # 2️⃣ Return existing valid credentials
     if user_key in st.session_state:
         creds = st.session_state[user_key]
 
@@ -55,35 +45,18 @@ def authenticate_gmail():
                 creds.refresh(Request())
                 st.session_state[user_key] = creds
                 return creds
-            except Exception as e:
-                with st.expander("🔍 Error refreshing credentials"):
-                    import traceback
-                    st.code(traceback.format_exc())
+            except:
+                st.warning("Token refresh failed, please login again.")
+                st.session_state.pop(user_key, None)
 
-    # ---------- 2. Load token.json (LOCAL ONLY) ----------
-    creds = None
-    if is_local() and os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-        if creds and creds.valid:
-            st.session_state[user_key] = creds
-            return creds
+    # 3️⃣ Cloud-only redirect URI
+    redirect_uri = "https://smart-email-engine-5khhar4st9jnt348hzba8.streamlit.app/oauth2callback"
 
-    # ---------- 3. Begin OAuth Flow ----------
-    try:
-        client_id = st.secrets["google"]["client_id"]
-        client_secret = st.secrets["google"]["client_secret"]
-    except KeyError as e:
-        st.error("❌ Missing Google OAuth credentials in Streamlit secrets")
-        st.error(f"Missing key: {str(e)}")
-        st.stop()
+    # 4️⃣ Load OAuth secrets
+    client_id = st.secrets["google"]["client_id"]
+    client_secret = st.secrets["google"]["client_secret"]
 
-    redirect_uri = (
-        "http://localhost:8501/oauth2callback"
-        if is_local()
-        else "https://smart-email-engine-5khhar4st9jnt348hzba8.streamlit.app/oauth2callback"
-    )
-
-    # OAuth flow
+    # 5️⃣ Build OAuth flow
     flow = Flow.from_client_config(
         {
             "web": {
@@ -100,55 +73,47 @@ def authenticate_gmail():
 
     query_params = st.query_params
 
-    # ---------- 4. Show login button ----------
+    # 6️⃣ First visit → Login button
     if "code" not in query_params:
         auth_url, _ = flow.authorization_url(
             prompt="consent",
             access_type="offline",
             include_granted_scopes="true",
         )
-
-        st.link_button("🔐 Login with Gmail", auth_url, type="primary")
+        st.link_button("🔐 Login with Google", auth_url)
         st.stop()
 
-    # ---------- 5. OAuth callback ----------
+    # 7️⃣ OAuth Callback
+    auth_code = query_params["code"]
+
     try:
-        flow.fetch_token(code=query_params["code"])
+        flow.fetch_token(code=auth_code)
         creds = flow.credentials
 
-        # Save PER-USER credentials
         st.session_state[user_key] = creds
+        st.success("Logged in successfully!")
 
-        # Local only: save token.json
-        if is_local():
-            with open("token.json", "w") as f:
-                f.write(creds.to_json())
-
-        st.success("✅ Logged in successfully!")
-        st.balloons()
-        # Clean URL
         st.query_params.clear()
         st.rerun()
 
     except Exception as e:
-        st.error("❌ Google Authentication Failed")
+        st.error("Authentication failed")
         st.error(str(e))
 
-        # Keep full error details for debugging
         with st.expander("🔍 Full Error Traceback"):
             import traceback
             st.code(traceback.format_exc())
 
-        # Helpful tips
         with st.expander("🔧 Troubleshooting Tips"):
-            st.write("1. Ensure OAuth redirect URI is added in Google Cloud Console:")
+            st.write("1. Ensure redirect URI is added in Google Cloud Console:")
             st.code(redirect_uri)
-            st.write("2. Confirm you are listed as a Test User in OAuth Consent Screen")
-            st.write("3. Ensure all gmail/calendar scopes are enabled")
+            st.write("2. Ensure you are added as a Test User")
+            st.write("3. Check your OAuth scope configuration")
 
         st.stop()
 
-    return st.session_state[user_key]
+    return creds
+
 
     
 def get_gmail_service():
