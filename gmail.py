@@ -114,17 +114,16 @@ def authenticate_gmail():
 
     return creds
 
-
+if "creds" not in st.session_state:
+    st.session_state["creds"] = authenticate_gmail()
     
 def get_gmail_service():
     """Return Gmail API service object"""
-    creds = authenticate_gmail()
-    return build("gmail", "v1", credentials=creds)
+    return build("gmail", "v1", credentials=st.session_state["creds"])
 
 def get_calendar_service():
     """Return Google Calendar API service object"""
-    creds = authenticate_gmail()
-    return build("calendar", "v3", credentials=creds)
+    return build("calendar", "v3", credentials=st.session_state["creds"])
 
 def list_labels(service):
     """List Gmail labels for the authenticated user"""
