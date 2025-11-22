@@ -1,12 +1,12 @@
-import os.path
 import os
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import streamlit as st
 from dotenv import load_dotenv
-from googleapiclient.errors import HttpError
+
 from calender import process_email
 from caption_emails import caption_email
 from send_email import create_message, get_email_content, get_mime_message, send_message
@@ -14,26 +14,28 @@ from summarize_emails import summarize_email
 
 load_dotenv()
 
-# Define the Gmail/Calendar scopes
+# -----------------------------------------------------------------------------------
+# SCOPES
+# -----------------------------------------------------------------------------------
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",   # <-- IMPORTANT (allows marking as read)
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/calendar.events",
 ]
 
-
+# -----------------------------------------------------------------------------------
+# AUTHENTICATION
+# -----------------------------------------------------------------------------------
 def authenticate_gmail():
-    # 1️⃣ Unique key per user session
     if "session_id" not in st.session_state:
         st.session_state.session_id = os.urandom(16).hex()
 
     user_key = f"creds_{st.session_state.session_id}"
 
-    # 2️⃣ Return existing valid credentials
     if user_key in st.session_state:
         creds = st.session_state[user_key]
 
@@ -49,14 +51,11 @@ def authenticate_gmail():
                 st.warning("Token refresh failed, please login again.")
                 st.session_state.pop(user_key, None)
 
-    # 3️⃣ Cloud-only redirect URI
     redirect_uri = "https://smart-email-engine-5khhar4st9jnt348hzba8.streamlit.app/oauth2callback"
 
-    # 4️⃣ Load OAuth secrets
     client_id = st.secrets["google"]["client_id"]
     client_secret = st.secrets["google"]["client_secret"]
 
-    # 5️⃣ Build OAuth flow
     flow = Flow.from_client_config(
         {
             "web": {
@@ -73,7 +72,6 @@ def authenticate_gmail():
 
     query_params = st.query_params
 
-    # 6️⃣ First visit → Login button
     if "code" not in query_params:
         auth_url, _ = flow.authorization_url(
             prompt="consent",
@@ -83,7 +81,6 @@ def authenticate_gmail():
         st.link_button("🔐 Login with Google", auth_url)
         st.stop()
 
-    # 7️⃣ OAuth Callback
     auth_code = query_params["code"]
 
     try:
@@ -99,35 +96,23 @@ def authenticate_gmail():
     except Exception as e:
         st.error("Authentication failed")
         st.error(str(e))
-
-        with st.expander("🔍 Full Error Traceback"):
-            import traceback
-            st.code(traceback.format_exc())
-
-        with st.expander("🔧 Troubleshooting Tips"):
-            st.write("1. Ensure redirect URI is added in Google Cloud Console:")
-            st.code(redirect_uri)
-            st.write("2. Ensure you are added as a Test User")
-            st.write("3. Check your OAuth scope configuration")
-
         st.stop()
 
     return creds
 
 
-    
+# -----------------------------------------------------------------------------------
+# GMAIL SERVICE
+# -----------------------------------------------------------------------------------
 def get_gmail_service():
-    """Return Gmail API service object"""
     creds = authenticate_gmail()
     return build("gmail", "v1", credentials=creds)
 
-def get_calendar_service():
-    """Return Google Calendar API service object"""
-    creds = authenticate_gmail()
-    return build("calendar", "v3", credentials=creds)
 
+# -----------------------------------------------------------------------------------
+# LIST LABELS (optional)
+# -----------------------------------------------------------------------------------
 def list_labels(service):
-    """List Gmail labels for the authenticated user"""
     results = service.users().labels().list(userId="me").execute()
     labels = results.get("labels", [])
     if labels:
@@ -137,8 +122,11 @@ def list_labels(service):
     else:
         print("No labels found.")
 
+
+# -----------------------------------------------------------------------------------
+# SEND TEST EMAIL
+# -----------------------------------------------------------------------------------
 def send_test_email(service, sender, recipient):
-    """Send a test email"""
     msg = create_message(
         sender=sender,
         to=recipient,
@@ -147,42 +135,86 @@ def send_test_email(service, sender, recipient):
     )
     send_message(service, "me", msg)
 
-def fetch_latest_email(service):
-    """Fetch latest email from inbox and return content"""
-    results = service.users().messages().list(userId='me', maxResults=1, labelIds=['INBOX']).execute()
-    messages = results.get('messages', [])
-    if not messages:
-        print("No new messages.")
-    else:
-        latest_msg_id = messages[0]['id']
-        mime_msg = get_mime_message(service, "me", latest_msg_id)
-        if mime_msg:
-            content = get_email_content(mime_msg)
-            print("Original email: \n",content)
-            caption = caption_email(content)
-            print("Email Caption: \n",caption)
-            summary = summarize_email(content)
-            print("Summarized email: \n",summary)
-            process_email(content)
 
-def process_latest_email(service):
-    """Fetch, summarize, and process the latest email"""
-    content = fetch_latest_email(service)
-    if content:
+# -----------------------------------------------------------------------------------
+# FETCH LATEST UNREAD EMAIL ★★★★★
+# -----------------------------------------------------------------------------------
+def fetch_latest_email(service):
+    """Fetch ONLY the latest UNREAD email from the inbox."""
+    try:
+        results = service.users().messages().list(
+            userId="me",
+            q="is:unread in:inbox",     # <--- ONLY UNREAD EMAILS
+            maxResults=1
+        ).execute()
+
+        messages = results.get("messages", [])
+        if not messages:
+            print("No unread messages.")
+            return None
+
+        latest_msg_id = messages[0]["id"]
+
+        # Get MIME message
+        mime_msg = get_mime_message(service, "me", latest_msg_id)
+        if not mime_msg:
+            print("Failed to load message.")
+            return None
+
+        # Convert MIME message into readable text
+        content = get_email_content(mime_msg)
         print("Original email:\n", content)
+
+        # Caption
+        caption = caption_email(content)
+        print("Caption:\n", caption)
+
+        # Summary
         summary = summarize_email(content)
-        print("Summarized email:\n", summary)
+        print("Summary:\n", summary)
+
+        # Process for calendar
         process_email(content)
 
+        # Mark email as READ so it doesn't come again
+        service.users().messages().modify(
+            userId="me",
+            id=latest_msg_id,
+            body={"removeLabelIds": ["UNREAD"]}
+        ).execute()
+
+        return content
+
+    except HttpError as e:
+        print("Gmail API error:", e)
+        return None
+
+
+# -----------------------------------------------------------------------------------
+# PROCESS LATEST EMAIL
+# -----------------------------------------------------------------------------------
+def process_latest_email(service):
+    content = fetch_latest_email(service)
+    if content:
+        print("Final processed email:\n", content)
+        summary = summarize_email(content)
+        print("Summary:\n", summary)
+        process_email(content)
+
+
+# -----------------------------------------------------------------------------------
+# MAIN RUNNER (terminal only)
+# -----------------------------------------------------------------------------------
 def main():
     creds = authenticate_gmail()
     try:
         service = build("gmail", "v1", credentials=creds)
         list_labels(service)
-        send_test_email(service, sender="toobaanwar240@gmail.com", recipient="toobaanwar240@gmail.com")
+        send_test_email(service, sender="your_email@gmail.com", recipient="your_email@gmail.com")
         process_latest_email(service)
     except HttpError as error:
         print(f"An error occurred: {error}")
+
 
 if __name__ == "__main__":
     main()
