@@ -130,16 +130,16 @@ def get_calendar_service():
 # -------------------------
 
 def fetch_latest_unread_emails(service, max_results=5):
-    """
-    Fetch the latest unread emails from Gmail (limit max_results)
-    """
+
+#    Fetch the latest unread emails from Gmail (limit max_results)
+    
     try:
         response = service.users().messages().list(
             userId="me",
             labelIds=["UNREAD"],
             maxResults=max_results,
-            q="is:unread",
-            orderBy="date"
+            q="is:unread"
+            # REMOVED: orderBy="date" - this parameter is not supported
         ).execute()
 
         messages = response.get("messages", [])
